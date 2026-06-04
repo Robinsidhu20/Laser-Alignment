@@ -285,8 +285,16 @@ MAX_VOLTAGE_RETURN_PACKETS = 20
 #   We accept a chunk as a "gain" if V > v_best + CHUNK_GAIN_V (3 mV).
 #   False-positive gains from noise are harmless — they just extend the
 #   walk slightly past the true peak, and the drop-detection then triggers.
-CHUNK_STEPS                   = 100   # step burst between V checks
-CHUNK_DROP_V                  = 0.018 # PRE-CLIMB confirmed drop from v_best
+CHUNK_STEPS                   = 200   # step burst between V checks.
+                                      # 2026-06-05: raised 100 → 200 per
+                                      # user request after a small-gain
+                                      # run.  Per-chunk signal doubles,
+                                      # so decisions land in fewer chunks;
+                                      # absolute thresholds below also
+                                      # raised ~20 % to keep the noise
+                                      # margin similar at the new chunk
+                                      # size.
+CHUNK_DROP_V                  = 0.022 # PRE-CLIMB confirmed drop from v_best
                                       # → real drop signal when direction has
                                       # not yet shown any gain.  Lowered
                                       # 2026-05-27 from 25 mV to 18 mV to
@@ -295,7 +303,7 @@ CHUNK_DROP_V                  = 0.018 # PRE-CLIMB confirmed drop from v_best
                                       # per-chunk noise floor; the two-read
                                       # confirmation continues to filter
                                       # single-chunk noise spikes.
-CHUNK_POST_CLIMB_DROP_V       = 0.010 # POST-CLIMB confirmed drop (10 mV).
+CHUNK_POST_CLIMB_DROP_V       = 0.012 # POST-CLIMB confirmed drop (12 mV).
                                       # Catches faster post-peak descents
                                       # via the standard drop-with-confirm
                                       # pathway.  Kept as a secondary safety
@@ -307,13 +315,24 @@ CHUNK_POST_CLIMB_DROP_V       = 0.010 # POST-CLIMB confirmed drop (10 mV).
 # stopped advancing recently — that means we WERE climbing, now we're not.
 # In that context, even a 5 mV dip below v_best is unambiguously "past peak"
 # because individual chunks during a real climb don't sit 5 mV below v_best.
-CHUNK_RESISTANCE_DROP_V       = 0.002 # 2 mV below v_best per chunk —
-                                      # combined with the 2-consecutive
-                                      # requirement, this catches even
-                                      # very slow post-peak descents
-                                      # within a few chunks.  Above noise
-                                      # mostly (with BUFFER guarding
-                                      # against during-climb false fires).
+CHUNK_RESISTANCE_DROP_V       = 0.005 # 5 mV below v_best per chunk.
+                                      # 2026-06-05: raised from 2 mV to
+                                      # 4 mV after measuring per-chunk
+                                      # 8-sample averaged noise σ ≈ 1 mV
+                                      # quiet / ~2-3 mV during demo
+                                      # conditions (people/lights/EMI
+                                      # near the bench).  At 2 mV the
+                                      # threshold sat BELOW demo noise
+                                      # so resistance was firing on
+                                      # individual noisy reads; the
+                                      # 2-consecutive rule still let
+                                      # paired noise excursions through.
+                                      # 4 mV is ~1.5× demo noise → with
+                                      # 2-consecutive, false-fire prob
+                                      # ≈ 1% over a typical walk.  Real
+                                      # post-peak descents accumulate
+                                      # 4 mV within 1–2 chunks, so
+                                      # resistance still fires fast.
 CHUNK_RESISTANCE_BUFFER       = 3     # chunks since v_best advanced before the
                                       # check arms (avoids firing during slow
                                       # climbs that haven't yet bumped v_best)
@@ -330,13 +349,13 @@ CHUNK_RESISTANCE_CONSEC       = 2     # TWO consecutive chunks both below
                                       # preventing the optimizer from
                                       # walking far past peak when the
                                       # axis is already at its optimum.
-CHUNK_GAIN_V                  = 0.025 # per-chunk BIG-JUMP gain over v_best.
+CHUNK_GAIN_V                  = 0.030 # per-chunk BIG-JUMP gain over v_best.
                                       # When a single chunk's reading is
                                       # this much above v_best, we slide
                                       # v_best up immediately.  Symmetric
                                       # with drop so noise can't inflate
                                       # v_best and undermine the drop net.
-CHUNK_SLOW_CLIMB_V            = 0.015 # SLOW-CLIMB threshold.  Empirically
+CHUNK_SLOW_CLIMB_V            = 0.018 # SLOW-CLIMB threshold.  Empirically
                                       # the per-chunk read noise on this
                                       # setup is ~5 mV (mechanical
                                       # vibration + EMI from active
@@ -479,16 +498,21 @@ ALL_MOVES = (
 # backlash take-up).  Order: paired axes first (most effective for coupling
 # per beam-walking literature), then singles for residual cleanup.
 WALK_AXES: List[Tuple[str, List[Tuple[int, int]]]] = [
-    # Paired (most effective for SM fiber coupling)
+    # Paired translates only + first-mirror singles.  2026-06-05:
+    #   • Y_walk / X_walk dropped — they have one motor reversing relative
+    #     to the previous axis's direction, so the first chunks are
+    #     dominated by backlash slack on the reversing motor and the
+    #     "walk" geometry is not clean.  Re-enable once per-motor
+    #     backlash has been calibrated.
+    #   • M3 / M4 kept — empirically the M3 single-motor climb (log
+    #     20260602_181338) is what delivered the 0.87 V → 2.41 V success.
+    #     These overlap with manual jog practice.
+    #   • M1 / M2 singles dropped — they overlap with Y_translate /
+    #     X_translate respectively and historically don't add gain.
     ("Y_translate",  [(1, 1), (3, 1)]),
-    ("Y_walk",       [(1, 1), (3, 0)]),
     ("X_translate",  [(2, 1), (4, 1)]),
-    ("X_walk",       [(2, 1), (4, 0)]),
-    # Single-motor cleanups — first-mirror axes (most sensitive) first
     ("M3",           [(3, 1)]),
     ("M4",           [(4, 1)]),
-    ("M1",           [(1, 1)]),
-    ("M2",           [(2, 1)]),
 ]
 
 
